@@ -14,6 +14,7 @@ type TableSnapshot = {
   handNumber: 1 | 2 | 3 | 4
   honba: number
   riichiPot: number
+  riichiThisHand: [boolean, boolean, boolean, boolean]
 }
 
 type YakumanId =
@@ -59,13 +60,10 @@ function calcBasePoints(han: number, fu: number, yakumanMultiplier: number) {
   // Kazoe yakuman (13+ han) – handled as yakuman equivalent.
   if (han >= 13) return 8000
 
-  const isMangan =
-    han >= 5 || (han === 4 && fu >= 40) || (han === 3 && fu >= 70)
-
-  if (isMangan) return 2000
   if (han >= 11) return 6000 // sanbaiman (11-12 han)
   if (han >= 8) return 4000 // baiman (8-10 han)
   if (han >= 6) return 3000 // haneman (6-7 han)
+  if (han >= 5 || (han === 4 && fu >= 40) || (han === 3 && fu >= 70)) return 2000
 
   // Normal hand: fu * 2^(han+2)
   return fu * 2 ** (han + 2)
@@ -73,12 +71,11 @@ function calcBasePoints(han: number, fu: number, yakumanMultiplier: number) {
 
 function getLimitLabel(han: number, fu: number, yakumanMultiplier: number) {
   if (yakumanMultiplier > 0) return yakumanMultiplier === 1 ? 'Yakuman' : `${yakumanMultiplier}x Yakuman`
-  const isMangan =
-    han >= 5 || (han === 4 && fu >= 40) || (han === 3 && fu >= 70)
-  if (isMangan) return 'Mangan'
+  if (han >= 13) return 'Yakuman'
   if (han >= 11) return 'Sanbaiman'
   if (han >= 8) return 'Baiman'
   if (han >= 6) return 'Haneman'
+  if (han >= 5 || (han === 4 && fu >= 40) || (han === 3 && fu >= 70)) return 'Mangan'
   return null
 }
 
@@ -142,6 +139,18 @@ function formatRound(w: RoundWind, hand: 1 | 2 | 3 | 4) {
   return `${name} ${hand}`
 }
 
+function rotateDealer(
+  dealer: SeatIndex,
+  roundWind: RoundWind,
+  handNumber: 1 | 2 | 3 | 4,
+) {
+  const nextDealer = ((dealer + 1) % 4) as SeatIndex
+  if (handNumber < 4) {
+    return { dealer: nextDealer, roundWind, handNumber: (handNumber + 1) as 1 | 2 | 3 | 4 }
+  }
+  return { dealer: nextDealer, roundWind: nextRoundWind(roundWind), handNumber: 1 as const }
+}
+
 function formatPoints(n: number) {
   return n.toLocaleString('en-US')
 }
@@ -188,6 +197,11 @@ function App() {
   const [riichiNewThisScore, setRiichiNewThisScore] = useState<[boolean, boolean, boolean, boolean]>([
     false, false, false, false,
   ])
+  const [riichiThisHand, setRiichiThisHand] = useState<[boolean, boolean, boolean, boolean]>([
+    false, false, false, false,
+  ])
+  const [gameStarted, setGameStarted] = useState(false)
+  const [guideText, setGuideText] = useState('Start a hanchan at East 1.')
 
   const [isNamesModalOpen, setIsNamesModalOpen] = useState(false)
   const [namesDraft, setNamesDraft] = useState<[string, string, string, string]>([
@@ -298,7 +312,8 @@ function App() {
     setFuClosedKanSimple(0)
     setFuClosedKanTermHonor(0)
 
-    setRiichiNewThisScore([false, false, false, false])
+    setRiichiNewThisScore([...riichiThisHand] as [boolean, boolean, boolean, boolean])
+    setYRiichi(riichiThisHand[dealer])
     setIsModalOpen(true)
   }
 
@@ -312,6 +327,7 @@ function App() {
       handNumber,
       honba,
       riichiPot,
+      riichiThisHand: [...riichiThisHand] as [boolean, boolean, boolean, boolean],
     }
     setHistory((h) => [...h, snap])
   }
@@ -326,8 +342,62 @@ function App() {
       setHandNumber(last.handNumber)
       setHonba(last.honba)
       setRiichiPot(last.riichiPot)
+      setRiichiThisHand(last.riichiThisHand)
+      setGuideText('Undid the last change.')
       return h.slice(0, -1)
     })
+  }
+
+  const leftoverRiichi = Math.max(0, riichiPot - riichiThisHand.filter(Boolean).length)
+
+  const toggleRiichi = (seat: SeatIndex) => {
+    if (riichiThisHand[seat]) {
+      pushHistory()
+      setRiichiThisHand((prev) => {
+        const next = [...prev] as [boolean, boolean, boolean, boolean]
+        next[seat] = false
+        return next
+      })
+      setRiichiPot((p) => Math.max(0, p - 1))
+      setScores((prev) => {
+        const next = [...prev] as [number, number, number, number]
+        next[seat] += 1000
+        return next
+      })
+      return
+    }
+    pushHistory()
+    setRiichiThisHand((prev) => {
+      const next = [...prev] as [boolean, boolean, boolean, boolean]
+      next[seat] = true
+      return next
+    })
+    setRiichiPot((p) => p + 1)
+    setScores((prev) => {
+      const next = [...prev] as [number, number, number, number]
+      next[seat] -= 1000
+      return next
+    })
+  }
+
+  const startEast1 = () => {
+    const cleaned = namesDraft.map((n, idx) => (n.trim() ? n.trim() : `Player ${idx + 1}`)) as [
+      string,
+      string,
+      string,
+      string,
+    ]
+    setPlayerNames(cleaned)
+    setScores([25000, 25000, 25000, 25000])
+    setDealer(0)
+    setRoundWind('E')
+    setHandNumber(1)
+    setHonba(0)
+    setRiichiPot(0)
+    setRiichiThisHand([false, false, false, false])
+    setHistory([])
+    setGameStarted(true)
+    setGuideText(`East 1. ${cleaned[0]} is dealer. Tap Riichi on a seat when they declare, then score the hand.`)
   }
 
   const openNames = () => {
@@ -347,7 +417,7 @@ function App() {
   }
 
   const openExhaustiveDraw = () => {
-    setTenpaiSeats([false, false, false, false])
+    setTenpaiSeats([...riichiThisHand] as [boolean, boolean, boolean, boolean])
     setIsDrawModalOpen(true)
   }
 
@@ -376,19 +446,24 @@ function App() {
       })
     }
 
-    // After exhaustive draw: honba increases; riichi sticks stay on table.
+    // After exhaustive draw: honba increases; leftover riichi sticks stay on the table.
     setHonba((h) => h + 1)
+    setRiichiThisHand([false, false, false, false])
 
     // Dealer repeat if dealer is tenpai, else dealer rotates (and hand number advances)
     const dealerInTenpai = tenpaiSeats[dealer]
-    if (!dealerInTenpai) {
-      setDealer((d) => (((d + 1) % 4) as SeatIndex))
-      setHandNumber((hn) => {
-        const next = (hn + 1) as 1 | 2 | 3 | 4 | 5
-        if (next <= 4) return next as 1 | 2 | 3 | 4
-        setRoundWind((rw) => nextRoundWind(rw))
-        return 1
-      })
+    if (dealerInTenpai) {
+      setGuideText(
+        `${formatRound(roundWind, handNumber)} continues — dealer tenpai. Honba ${honba + 1}. ${riichiPot} leftover riichi stick${riichiPot === 1 ? '' : 's'} stay in the pot.`,
+      )
+    } else {
+      const next = rotateDealer(dealer, roundWind, handNumber)
+      setDealer(next.dealer)
+      setRoundWind(next.roundWind)
+      setHandNumber(next.handNumber)
+      setGuideText(
+        `${formatRound(next.roundWind, next.handNumber)}. Honba ${honba + 1}. ${riichiPot} leftover riichi stick${riichiPot === 1 ? '' : 's'} stay in the pot.`,
+      )
     }
 
     setIsDrawModalOpen(false)
@@ -399,8 +474,9 @@ function App() {
     const isDealerWin = winner === dealer
     const effectiveHan = yakumanMultiplier > 0 ? 0 : (useQuestionnaire ? derived.han : han)
     const effectiveFu = yakumanMultiplier > 0 ? 0 : (useQuestionnaire ? derived.fu : fu)
-    const newRiichiCount = riichiNewThisScore.filter(Boolean).length
-    const effectiveRiichiPot = riichiPot + newRiichiCount
+    const newlyDeclared = ([0, 1, 2, 3] as const).filter((i) => riichiNewThisScore[i] && !riichiThisHand[i]).length
+    const undeclared = ([0, 1, 2, 3] as const).filter((i) => !riichiNewThisScore[i] && riichiThisHand[i]).length
+    const effectiveRiichiPot = riichiPot + newlyDeclared - undeclared
     const input: HandInput = {
       winner,
       winType,
@@ -418,10 +494,11 @@ function App() {
     setScores((prev) => {
       const next = [...prev] as [number, number, number, number]
 
-      // Apply riichi deposits at scoring time (your workflow)
+      // Collect any riichi not already paid from the table buttons
       for (let i = 0; i < 4; i++) {
         const seat = i as SeatIndex
-        if (riichiNewThisScore[seat]) next[seat] -= 1000
+        if (riichiNewThisScore[seat] && !riichiThisHand[seat]) next[seat] -= 1000
+        if (!riichiNewThisScore[seat] && riichiThisHand[seat]) next[seat] += 1000
       }
 
       if (payments.kind === 'ron') {
@@ -450,23 +527,26 @@ function App() {
       return next
     })
 
-    // clear pot after win
+    // Winner takes leftover riichi sticks plus this hand's deposits
     setRiichiPot(0)
+    setRiichiThisHand([false, false, false, false])
     setRiichiNewThisScore([false, false, false, false])
 
     // dealer / honba / round progression (per standard honba rules)
     if (isDealerWin) {
       setHonba((h) => h + 1)
-      // dealer stays, handNumber unchanged
+      setGuideText(
+        `${playerNames[winner]} won ${formatRound(roundWind, handNumber)}. Dealer repeat, honba ${honba + 1}. Riichi pot is empty.`,
+      )
     } else {
       setHonba(0)
-      setDealer((d) => (((d + 1) % 4) as SeatIndex))
-      setHandNumber((hn) => {
-        const next = (hn + 1) as 1 | 2 | 3 | 4 | 5
-        if (next <= 4) return next as 1 | 2 | 3 | 4
-        setRoundWind((rw) => nextRoundWind(rw))
-        return 1
-      })
+      const next = rotateDealer(dealer, roundWind, handNumber)
+      setDealer(next.dealer)
+      setRoundWind(next.roundWind)
+      setHandNumber(next.handNumber)
+      setGuideText(
+        `${playerNames[winner]} won. Next is ${formatRound(next.roundWind, next.handNumber)}. Honba cleared. ${playerNames[next.dealer]} is dealer.`,
+      )
     }
 
     setIsModalOpen(false)
@@ -552,8 +632,10 @@ function App() {
     const isDealerWin = winner === dealer
     const effectiveHan = yakumanMultiplier > 0 ? 0 : (useQuestionnaire ? derived.han : han)
     const effectiveFu = yakumanMultiplier > 0 ? 0 : (useQuestionnaire ? derived.fu : fu)
-    const newRiichiCount = riichiNewThisScore.filter(Boolean).length
-    const effectiveRiichiPot = riichiPot + newRiichiCount
+    const newlyDeclared = ([0, 1, 2, 3] as const).filter((i) => riichiNewThisScore[i] && !riichiThisHand[i]).length
+    const undeclared = ([0, 1, 2, 3] as const).filter((i) => !riichiNewThisScore[i] && riichiThisHand[i]).length
+    const effectiveRiichiPot = riichiPot + newlyDeclared - undeclared
+    const leftoverSticks = Math.max(0, effectiveRiichiPot - riichiNewThisScore.filter(Boolean).length)
     const input: HandInput = {
       winner,
       winType,
@@ -570,7 +652,8 @@ function App() {
       limit: getLimitLabel(effectiveHan, effectiveFu, yakumanMultiplier),
       effectiveHan,
       effectiveFu,
-      newRiichiCount,
+      leftoverSticks,
+      thisHandSticks: riichiNewThisScore.filter(Boolean).length,
       effectiveRiichiPot,
     }
   })()
@@ -590,38 +673,51 @@ function App() {
               const seatWind = (seat: SeatIndex) => windsByOffset[(seat - dealer + 4) % 4] ?? 'E'
               const isDealerSeat = (seat: SeatIndex) => seat === dealer
 
+              const renderSeat = (seat: SeatIndex, position: string) => (
+                <div
+                  className={`seatPanel ${position} ${isDealerSeat(seat) ? 'dealer' : ''} ${riichiThisHand[seat] ? 'riichiOn' : ''}`}
+                >
+                  <div className="seatPanelInner">
+                    <div className="seatName">{playerNames[seat]}</div>
+                    <div className="seatMeta">
+                      <span className="seatWind">{seatWind(seat)}</span>
+                      {isDealerSeat(seat) ? <span className="dealerTag">Dealer</span> : null}
+                    </div>
+                    <div className="seatPoints">{formatPoints(scores[seat])}</div>
+                    <button
+                      type="button"
+                      className={`riichiCall ${riichiThisHand[seat] ? 'on' : ''}`}
+                      disabled={!gameStarted}
+                      onClick={() => toggleRiichi(seat)}
+                    >
+                      {riichiThisHand[seat] ? 'Riichi' : 'Riichi'}
+                    </button>
+                  </div>
+                </div>
+              )
+
               return (
                 <>
-                  <div className={`seatPanel top ${isDealerSeat(top) ? 'dealer' : ''}`}>
-                    <div className="seatPanelContent rotate180">
-                      <div className="seatName">{playerNames[top]}</div>
-                      <div className="seatWind">{seatWind(top)}</div>
-                      <div className="seatPoints">{formatPoints(scores[top])}</div>
-                    </div>
-                  </div>
-
-                  <div className={`seatPanel side left ${isDealerSeat(left) ? 'dealer' : ''}`}>
-                    <div className="seatPanelContent rotate270">
-                      <div className="seatName">{playerNames[left]}</div>
-                      <div className="seatWind">{seatWind(left)}</div>
-                      <div className="seatPoints">{formatPoints(scores[left])}</div>
-                    </div>
-                  </div>
-
+                  {renderSeat(top, 'top')}
+                  {renderSeat(left, 'left')}
                   <div className="tableCenter">
                     <div className="roundBadge">
-                      <div className="roundBig">
-                        {formatRound(roundWind, handNumber)}
-                      </div>
-                      <div className="roundSmall">
-                        Dealer: Seat {dealer + 1}
+                      <div className="roundBig">{formatRound(roundWind, handNumber)}</div>
+                      <div className="roundSmall">Dealer: {playerNames[dealer]}</div>
+                    </div>
+                    <div className="tableCounters">
+                      <div className="counterChip">Honba {honba}</div>
+                      <div className="counterChip">
+                        Riichi {riichiPot}
+                        {leftoverRiichi > 0 ? ` (${leftoverRiichi} leftover)` : ''}
                       </div>
                     </div>
-                    <button className="btn primary big" onClick={openScoreHand}>
+                    <p className="guideText">{guideText}</p>
+                    <button className="btn primary big" onClick={openScoreHand} disabled={!gameStarted}>
                       Score hand
                     </button>
                     <div className="tableActions">
-                      <button className="btn" onClick={openExhaustiveDraw}>
+                      <button className="btn" onClick={openExhaustiveDraw} disabled={!gameStarted}>
                         Exhaustive draw
                       </button>
                       <button className="btn" onClick={undo} disabled={history.length === 0}>
@@ -630,30 +726,62 @@ function App() {
                       <button className="btn" onClick={openNames}>
                         Names
                       </button>
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          setNamesDraft(playerNames)
+                          setGameStarted(false)
+                        }}
+                      >
+                        New game
+                      </button>
                     </div>
                   </div>
-
-                  <div className={`seatPanel side right ${isDealerSeat(right) ? 'dealer' : ''}`}>
-                    <div className="seatPanelContent rotate90">
-                      <div className="seatName">{playerNames[right]}</div>
-                      <div className="seatWind">{seatWind(right)}</div>
-                      <div className="seatPoints">{formatPoints(scores[right])}</div>
-                    </div>
-                  </div>
-
-                  <div className={`seatPanel bottom ${isDealerSeat(bottom) ? 'dealer' : ''}`}>
-                    <div className="seatPanelContent">
-                      <div className="seatName">{playerNames[bottom]}</div>
-                      <div className="seatWind">{seatWind(bottom)}</div>
-                      <div className="seatPoints">{formatPoints(scores[bottom])}</div>
-                    </div>
-                  </div>
+                  {renderSeat(right, 'right')}
+                  {renderSeat(bottom, 'bottom')}
                 </>
               )
             })()}
           </div>
         </div>
       </section>
+
+      {!gameStarted ? (
+        <div className="setupOverlay">
+          <div className="setupCard">
+            <div className="setupTitle">Riichi Scorer</div>
+            <p className="setupLead">
+              A four-player hanchan starts at East 1. Bottom seat is the first dealer. Enter names, then we&apos;ll keep
+              honba and leftover riichi sticks as you go.
+            </p>
+            <div className="setupFields">
+              {(['Bottom', 'Right', 'Top', 'Left'] as const).map((place, idx) => (
+                <label key={place} className="field">
+                  <span>
+                    {place}
+                    {idx === 0 ? ' (first dealer)' : ''}
+                  </span>
+                  <input
+                    type="text"
+                    value={namesDraft[idx]}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setNamesDraft((prev) => {
+                        const next = [...prev] as [string, string, string, string]
+                        next[idx] = v
+                        return next
+                      })
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+            <button className="btn primary big" onClick={startEast1}>
+              Start East 1
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {isModalOpen ? (
         <div
@@ -668,7 +796,7 @@ function App() {
               <div>
                 <div className="modalTitle">Score a hand</div>
                 <div className="modalSub">
-                  {formatRound(roundWind, handNumber)} • Dealer: Seat {dealer + 1}
+                  {formatRound(roundWind, handNumber)} • {playerNames[dealer]} dealer • Honba {honba} • Riichi pot {riichiPot}
                 </div>
               </div>
               <div className="modalHeaderActions">
@@ -752,8 +880,7 @@ function App() {
                 <div className="riichiSection">
                   <div className="qTitle">Riichi deposits (optional)</div>
                   <div className="qHint">
-                    Check anyone who declared riichi this hand. On confirm, they pay <b>1000</b> each, and the winner collects the
-                    full table pool (including any riichi left from earlier hands).
+                    Seats already marked on the table are checked. Honba and leftover sticks from earlier hands are included in the winner total.
                   </div>
                   <div className="qGrid">
                     {(Array.from({ length: 4 }) as unknown[]).map((_, idx) => {
@@ -796,15 +923,12 @@ function App() {
                         </>
                       )}
                     </div>
-                    {preview.payments.kind === 'ron' ? (
-                      <>
-                        <div className="previewLine">Winner total: {formatPoints(preview.payments.total)}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="previewLine">Winner total: {formatPoints(preview.payments.total)}</div>
-                      </>
-                    )}
+                    <div className="previewLine">Honba {honba}: {preview.payments.kind === 'ron' ? `+${honba * 300}` : `+${honba * 100} each`}</div>
+                    <div className="previewLine">
+                      Riichi sticks: {preview.effectiveRiichiPot} × 1000
+                      {preview.leftoverSticks ? ` (${preview.leftoverSticks} leftover + ${preview.thisHandSticks} this hand)` : ''}
+                    </div>
+                    <div className="previewLine">Winner total: {formatPoints(preview.payments.total)}</div>
                   </div>
                 </div>
 
@@ -1236,7 +1360,9 @@ function App() {
                 <div className="previewLines">
                   <div className="previewLine">If not all / not none: total 3000 points exchanged.</div>
                   <div className="previewLine">Dealer repeats if dealer is tenpai.</div>
-                  <div className="previewLine">Riichi deposits stay on table.</div>
+                  <div className="previewLine">
+                    Honba will become {honba + 1}. {riichiPot} leftover riichi stick{riichiPot === 1 ? '' : 's'} stay on the table.
+                  </div>
                 </div>
               </div>
             </div>

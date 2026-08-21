@@ -25,6 +25,7 @@ alwaysApply: true
 - Use plan/discussion first when requests are broad or ambiguous.
 - After plan approval, execute end-to-end with minimal interruption.
 - Run lint and build checks after substantive changes.
+- After finishing work, commit and push to `origin` so GitHub Pages updates. Do not wait to be asked to push.
 - If blocked by missing external info (for example, repository URL), ask concise questions and continue immediately.
 
 ## Safety
