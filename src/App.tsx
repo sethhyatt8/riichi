@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
 type SeatIndex = 0 | 1 | 2 | 3
@@ -201,6 +201,7 @@ function App() {
     false, false, false, false,
   ])
   const [gameStarted, setGameStarted] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const [guideText, setGuideText] = useState('Start a hanchan at East 1.')
 
   const [isNamesModalOpen, setIsNamesModalOpen] = useState(false)
@@ -346,6 +347,34 @@ function App() {
       setGuideText('Undid the last change.')
       return h.slice(0, -1)
     })
+  }
+
+  useEffect(() => {
+    const sync = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element | null }
+      setIsFullscreen(Boolean(document.fullscreenElement || doc.webkitFullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', sync)
+    document.addEventListener('webkitfullscreenchange', sync)
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      document.removeEventListener('webkitfullscreenchange', sync)
+    }
+  }, [])
+
+  const toggleFullscreen = () => {
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void }
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null
+      webkitExitFullscreen?: () => void
+    }
+    if (document.fullscreenElement || doc.webkitFullscreenElement) {
+      if (document.exitFullscreen) void document.exitFullscreen()
+      else doc.webkitExitFullscreen?.()
+      return
+    }
+    const request = el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el)
+    if (request) void request()
   }
 
   const leftoverRiichi = Math.max(0, riichiPot - riichiThisHand.filter(Boolean).length)
@@ -660,7 +689,7 @@ function App() {
 
   return (
     <>
-      <section className="soloScreen">
+      <section className={`soloScreen ${isFullscreen ? 'isFullscreen' : ''}`}>
         <div className="tableSquare" role="presentation" aria-label="Mahjong table">
           <div className="tableGrid" aria-label="Table status">
             {(() => {
@@ -717,6 +746,9 @@ function App() {
                       Score hand
                     </button>
                     <div className="tableActions">
+                      <button className="btn" type="button" onClick={toggleFullscreen}>
+                        {isFullscreen ? 'Exit full screen' : 'Full screen'}
+                      </button>
                       <button className="btn" onClick={openExhaustiveDraw} disabled={!gameStarted}>
                         Exhaustive draw
                       </button>
